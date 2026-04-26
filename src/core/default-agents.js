@@ -13,7 +13,7 @@ export function defaultAgents() {
       id: 'agent-orchestrateur',
       name: 'Orchestrateur',
       role: 'orchestrator',
-      description: 'Analyse la demande, choisit le bon agent, délègue et fusionne la réponse.',
+      description: 'Analyse la demande, choisit le bon agent, delègue et fusionne la réponse.',
       backendId: 'perplexity-sonar',
       tags: ['systeme', 'routing', 'meta'],
       memory_profile: { level: 'high', scope: 'global-routing' },
@@ -31,7 +31,7 @@ Règles :
       id: 'agent-jardinier',
       name: 'Jardinier',
       role: 'gardener',
-      description: 'Nettoie, compacte et améliore les agents. Ne répond pas à l'utilisateur final.',
+      description: 'Nettoie, compacte et améliore les agents. Ne répond pas à l\u2019utilisateur final.',
       backendId: 'perplexity-sonar',
       tags: ['systeme', 'maintenance', 'prompts'],
       memory_profile: { level: 'high', scope: 'agents-only' },
@@ -78,7 +78,7 @@ Format de sortie OBLIGATOIRE (JSON brut, pas de markdown) :
     }),
     makeAgent({
       id: 'agent-mensualites',
-      name: 'Mensualités',
+      name: 'Mensualites',
       role: 'monthly-payments',
       description: 'Calcule et suit tout ce qui doit être payé chaque mois.',
       tags: ['finance', 'mensualites', 'budget'],
@@ -125,7 +125,7 @@ Ne donne jamais de conseil d'achat/vente sans rappeler que c'est une analyse per
 
 Tu aides à :
 - Imaginer des concepts narratifs et des univers
-- Structurer des branches de choix (nœuds, alternatives, fins)
+- Structurer des branches de choix (noeuds, alternatives, fins)
 - Améliorer le style, la fluidité, le rythme d'un texte
 - Clarifier et enrichir les descriptions de scènes
 - Préparer des contenus réutilisables dans la PWA narrative
@@ -149,7 +149,7 @@ Tu aides à :
 - Synthétiser les résultats de manière actionnable
 - Distinguer ce qui est certain, probable ou à vérifier
 
-Format préféré : synthèse en 3-5 points, suivie d'un bloc "Sources / À vérifier".
+Format préféré : synthèse en 3-5 points, suivie d'un bloc "Sources / A vérifier".
 Evite le hors-sujet. Sois concis et factuel.`,
     }),
   ];
