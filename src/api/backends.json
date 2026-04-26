@@ -1,0 +1,26 @@
+{
+  "perplexity-sonar": {
+    "label": "Perplexity Sonar",
+    "type": "openai-compatible",
+    "baseUrl": "https://api.perplexity.ai",
+    "chatPath": "/chat/completions",
+    "model": "sonar",
+    "requiresApiKey": true,
+    "envKey": "PERPLEXITY_API_KEY"
+  },
+  "openrouter-qwen-free": {
+    "label": "Qwen Free (OpenRouter)",
+    "type": "openai-compatible",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "chatPath": "/chat/completions",
+    "model": "qwen/qwen3-coder:free",
+    "requiresApiKey": true,
+    "envKey": "OPENROUTER_API_KEY"
+  },
+  "puter-qwen": {
+    "label": "Qwen (Puter.js)",
+    "type": "puter-qwen",
+    "requiresApiKey": false,
+    "note": "Utilise Puter.js côté client pour accéder aux modèles Qwen gratuitement."
+  }
+}
