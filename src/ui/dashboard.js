@@ -1,7 +1,7 @@
 import { listBackends, callLLM } from '../api/backends.js';
 import { saveAgent, deleteAgent, exportAgentsJson, downloadText, importAgentsJson, lsGet, lsSet } from '../storage/agents-db.js';
 import { gardenerMerge } from '../core/gardener.js';
-import { searchWeb } from '../api/search.js';
+import { searchWeb, getSearchStatus } from '../api/search.js';
 
 const ROLE_ICONS = {
   orchestrator: '🧠', gardener: '🌿', factory: '🏭',
@@ -225,8 +225,6 @@ function renderChatView(container, state, rerender) {
       let backendId = agent.backendId || 'groq-llama';
 
       if (agent.role === 'web-search') {
-        // Agent special : on appelle d'abord la recherche Web via le proxy,
-        // puis on passe les resultats a Groq pour synthese.
         const results = await searchWeb(msg, { maxResults: 5 });
         const context = results.map((r, i) => (
           `${i + 1}. ${r.title}\n${r.link}\n${r.snippet}`
@@ -471,10 +469,12 @@ function renderSettings(container, state, rerender) {
   const backends = listBackends();
   const list = el('div', { display:'flex', flexDirection:'column', gap:'10px' });
 
+  // ── Note générale ──────────────────────────────────────────────────────────
   const noteEl = el('div', { fontSize:'12px', color:'#888', marginBottom:'8px', lineHeight:'1.5' });
-  noteEl.innerHTML = '🔑 Les cles API sont stockees localement sur cet appareil uniquement.<br>🟢 Puter.js et Groq necessitent une cle uniquement pour Groq.';
+  noteEl.innerHTML = '🔑 Les cles API sont stockees localement sur cet appareil uniquement.<br>Groq est gratuit avec un compte sur <a href="https://console.groq.com" target="_blank" style="color:#5af">console.groq.com</a>.';
   list.appendChild(noteEl);
 
+  // ── Backends LLM ───────────────────────────────────────────────────────────
   backends.forEach((b) => {
     const card = el('div', { background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:'10px', padding:'12px' });
     const titleEl = el('div', { fontWeight:'600', fontSize:'13px', marginBottom:'4px' });
@@ -484,17 +484,24 @@ function renderSettings(container, state, rerender) {
     card.append(titleEl, typeEl);
 
     if (b.requiresApiKey && b.envKey) {
-      const lEl = labelEl('Cle : ' + b.envKey);
+      const lEl = labelEl('Cle API : ' + b.envKey);
       const inp = document.createElement('input');
       inp.type = 'password'; inp.autocomplete = 'off';
       Object.assign(inp.style, {
         width:'100%', background:'#111', color:'#ccc', border:'1px solid #333',
         borderRadius:'8px', padding:'8px', fontSize:'13px', boxSizing:'border-box'
       });
-      inp.placeholder = 'sk-... / gsk-...';
+      inp.placeholder = b.envKey.includes('GROQ') ? 'gsk_...' : 'sk-...';
       inp.value = lsGet(b.envKey) || '';
       inp.onchange = () => { lsSet(b.envKey, inp.value.trim()); showToast('Cle ' + b.envKey + ' sauvegardee.'); };
       card.append(lEl, inp);
+
+      // Indicateur visuel cle presente / absente
+      const statusDot = el('div', { fontSize:'11px', marginTop:'4px' });
+      const hasKey = !!(lsGet(b.envKey) || '').trim();
+      statusDot.textContent = hasKey ? '✅ Cle presente' : '⚠️ Cle manquante';
+      statusDot.style.color = hasKey ? '#5a9' : '#a66';
+      card.appendChild(statusDot);
     } else {
       const freeEl = el('div', { fontSize:'12px', color:'#5a9' });
       freeEl.textContent = '✅ Gratuit, aucune cle requise';
@@ -503,19 +510,50 @@ function renderSettings(container, state, rerender) {
     list.appendChild(card);
   });
 
-  // Section specifique Recherche Web (proxy + Google CSE)
-  const searchCard = el('div', { background:'#101010', border:'1px solid #2a2a2a', borderRadius:'10px', padding:'12px', marginTop:'4px' });
+  // ── Section Recherche Web ──────────────────────────────────────────────────
+  const searchCard = el('div', { background:'#101018', border:'1px solid #2a2a3a', borderRadius:'10px', padding:'12px', marginTop:'4px' });
   const sTitle = el('div', { fontWeight:'600', fontSize:'13px', marginBottom:'4px' });
-  sTitle.textContent = 'Recherche Web (proxy perso + Google CSE)';
-  const sDesc = el('div', { fontSize:'11px', color:'#777', marginBottom:'8px', lineHeight:'1.5' });
-  sDesc.innerHTML = 'L\'agent "Recherche web" utilise ton proxy Cloudflare pour appeler l\'API Google Custom Search. Configure ici le proxy et les identifiants CSE.';
-  searchCard.append(sTitle, sDesc);
+  sTitle.textContent = '🌐 Recherche Web';
 
-  const proxyLabel = labelEl('URL proxy (SEARCH_PROXY_URL)');
+  // Statut moteur actif
+  const status = getSearchStatus();
+  const statusBadge = el('div', { fontSize:'11px', marginBottom:'8px', padding:'4px 8px', borderRadius:'6px',
+    background: status.engine === 'serper' ? '#1a3a1a' : '#1a1a3a',
+    color: status.engine === 'serper' ? '#7ef' : '#88f',
+    display:'inline-block'
+  });
+  statusBadge.textContent = (status.engine === 'serper' ? '🟢 Serper.dev actif' : '🔵 SearXNG fallback') + ' — ' + status.reason;
+  searchCard.append(sTitle, statusBadge);
+
+  const sDesc = el('div', { fontSize:'11px', color:'#777', marginBottom:'10px', lineHeight:'1.5' });
+  sDesc.innerHTML = 'Strategie : <b>Serper.dev</b> en 1er (2500 req/mois gratuites, vrai Google) → <b>SearXNG</b> en fallback (illimite, sans cle).<br>Cree un compte gratuit sur <a href="https://serper.dev" target="_blank" style="color:#5af">serper.dev</a> pour obtenir ta cle.';
+  searchCard.appendChild(sDesc);
+
+  // Champ clé Serper
+  const serperLabel = labelEl('Cle Serper.dev (SERPER_KEY) — optionnelle mais recommandee');
+  const serperInput = document.createElement('input');
+  Object.assign(serperInput.style, {
+    width:'100%', background:'#111', color:'#ccc', border:'1px solid #333',
+    borderRadius:'8px', padding:'8px', fontSize:'13px', boxSizing:'border-box', marginBottom:'6px'
+  });
+  serperInput.type = 'password';
+  serperInput.placeholder = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+  serperInput.value = lsGet('SERPER_KEY') || '';
+  serperInput.onchange = () => { lsSet('SERPER_KEY', serperInput.value.trim()); showToast('SERPER_KEY sauvegardee.'); rerender(); };
+
+  const serperStatus = el('div', { fontSize:'11px', marginBottom:'8px' });
+  const hasSerper = !!(lsGet('SERPER_KEY') || '').trim();
+  serperStatus.textContent = hasSerper ? '✅ Cle Serper presente' : '⚠️ Pas de cle Serper — SearXNG sera utilise en fallback direct';
+  serperStatus.style.color = hasSerper ? '#5a9' : '#a66';
+
+  searchCard.append(serperLabel, serperInput, serperStatus);
+
+  // Champ proxy
+  const proxyLabel = labelEl('URL du proxy CORS (SEARCH_PROXY_URL)');
   const proxyInput = document.createElement('input');
   Object.assign(proxyInput.style, {
     width:'100%', background:'#111', color:'#ccc', border:'1px solid #333',
-    borderRadius:'8px', padding:'8px', fontSize:'13px', boxSizing:'border-box', marginBottom:'6px'
+    borderRadius:'8px', padding:'8px', fontSize:'13px', boxSizing:'border-box'
   });
   proxyInput.type = 'text';
   proxyInput.placeholder = 'https://proxy.sicho95.workers.dev/';
@@ -523,32 +561,7 @@ function renderSettings(container, state, rerender) {
   proxyInput.onchange = () => { lsSet('SEARCH_PROXY_URL', proxyInput.value.trim()); showToast('SEARCH_PROXY_URL sauvegardee.'); };
   searchCard.append(proxyLabel, proxyInput);
 
-  const keyLabel = labelEl('Google CSE API key (GOOGLE_CSE_KEY)');
-  const keyInput = document.createElement('input');
-  Object.assign(keyInput.style, {
-    width:'100%', background:'#111', color:'#ccc', border:'1px solid #333',
-    borderRadius:'8px', padding:'8px', fontSize:'13px', boxSizing:'border-box', marginBottom:'6px'
-  });
-  keyInput.type = 'password';
-  keyInput.placeholder = 'AIza...';
-  keyInput.value = lsGet('GOOGLE_CSE_KEY') || '';
-  keyInput.onchange = () => { lsSet('GOOGLE_CSE_KEY', keyInput.value.trim()); showToast('GOOGLE_CSE_KEY sauvegardee.'); };
-  searchCard.append(keyLabel, keyInput);
-
-  const cxLabel = labelEl('Google CSE CX (GOOGLE_CSE_CX)');
-  const cxInput = document.createElement('input');
-  Object.assign(cxInput.style, {
-    width:'100%', background:'#111', color:'#ccc', border:'1px solid #333',
-    borderRadius:'8px', padding:'8px', fontSize:'13px', boxSizing:'border-box'
-  });
-  cxInput.type = 'text';
-  cxInput.placeholder = 'xxxxxxxxxxxxxxxxx:yyyyyyyyyyy';
-  cxInput.value = lsGet('GOOGLE_CSE_CX') || '';
-  cxInput.onchange = () => { lsSet('GOOGLE_CSE_CX', cxInput.value.trim()); showToast('GOOGLE_CSE_CX sauvegardee.'); };
-  searchCard.append(cxLabel, cxInput);
-
   list.appendChild(searchCard);
-
   container.appendChild(list);
 }
 
