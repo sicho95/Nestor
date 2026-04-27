@@ -18,7 +18,6 @@ async function main() {
   try { agents = await loadAgents(); }
   catch (e) { console.error('[Nestor] loadAgents:', e); }
 
-  // Demarrage direct sur l'orchestrateur
   const orchestrator = agents.find(a => a.role === 'orchestrator') || null;
 
   const state = {
@@ -44,7 +43,6 @@ export function renderFrame(root, state) {
   const frame = document.createElement('div');
   frame.className = 'lvgl-frame';
 
-  // --- Barre de statut avec hamburger ---
   const statusBar = document.createElement('div');
   statusBar.className = 'lvgl-status-bar';
 
@@ -64,7 +62,7 @@ export function renderFrame(root, state) {
 
   const hamburger = document.createElement('button');
   hamburger.innerHTML = state.menuOpen
-    ? '\u2715' // X
+    ? '\u2715'
     : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>';
   hamburger.style.cssText = 'background:none;border:none;color:#aaa;padding:4px 8px;font-size:16px;cursor:pointer;-webkit-tap-highlight-color:transparent;';
   hamburger.onclick = () => {
@@ -74,27 +72,24 @@ export function renderFrame(root, state) {
 
   statusBar.append(titleEl, hamburger);
 
-  // --- Menu overlay (drawer) ---
   const rerender = () => renderFrame(root, state);
 
   let drawer = null;
   let drawerOverlay = null;
   if (state.menuOpen) {
-    // Fond semi-transparent
     drawerOverlay = document.createElement('div');
     drawerOverlay.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.55);z-index:10;';
     drawerOverlay.onclick = () => { state.menuOpen = false; renderFrame(root, state); };
 
-    // Drawer lateral gauche
     drawer = document.createElement('div');
     drawer.style.cssText = [
-      'position:absolute;top:0;left:0;bottom:0;width:200px;',
+      'position:absolute;top:0;left:0;bottom:0;width:220px;',
       'background:#0e0e0e;border-right:1px solid #222;',
       'z-index:11;display:flex;flex-direction:column;padding:12px 0;',
+      'overflow-y:auto;-webkit-overflow-scrolling:touch;',
       'animation:slideIn 0.18s ease;'
     ].join('');
 
-    // Titre drawer
     const drawerTitle = document.createElement('div');
     drawerTitle.style.cssText = 'padding:8px 16px 12px;font-size:11px;color:#555;text-transform:uppercase;letter-spacing:0.08em;border-bottom:1px solid #1a1a1a;margin-bottom:8px;';
     drawerTitle.textContent = 'Nestor';
@@ -115,10 +110,9 @@ export function renderFrame(root, state) {
       return btn;
     };
 
-    // Retour orhestrateur
     const orch = state.agents.find(a => a.role === 'orchestrator');
     if (orch) {
-      drawer.appendChild(mkItem('\uD83E\uDDE0', 'Orchestrateur',
+      drawer.appendChild(mkItem('\uD83E\uDDE0', 'Parler a l\'Orchestrateur',
         () => {
           state.activeAgent = orch;
           state.chatHistory = [{ role: 'system', content: orch.system_prompt || '' }];
@@ -130,17 +124,15 @@ export function renderFrame(root, state) {
       ));
     }
 
-    // Separateur
     const sep1 = document.createElement('div');
     sep1.style.cssText = 'height:1px;background:#1a1a1a;margin:6px 0;';
     drawer.appendChild(sep1);
 
-    // Agents specialises
     const otherAgents = state.agents.filter(a => a.role !== 'orchestrator' && a.role !== 'gardener' && a.role !== 'factory');
     if (otherAgents.length > 0) {
       const agentsLabel = document.createElement('div');
       agentsLabel.style.cssText = 'padding:4px 16px 6px;font-size:10px;color:#444;text-transform:uppercase;letter-spacing:0.08em;';
-      agentsLabel.textContent = 'Agents';
+      agentsLabel.textContent = 'Parler a un agent';
       drawer.appendChild(agentsLabel);
 
       const ICONS = { 'monthly-payments':'\uD83D\uDCC5', 'pea-portfolio':'\uD83D\uDCC8', stories:'\uD83D\uDCDA', research:'\uD83D\uDD0D', generic:'\uD83E\uDD16' };
@@ -163,13 +155,11 @@ export function renderFrame(root, state) {
     sep2.style.cssText = 'height:1px;background:#1a1a1a;margin:6px 0;';
     drawer.appendChild(sep2);
 
-    // Outils systeme
-    drawer.appendChild(mkItem('\uD83E\uDD16', 'Tous les agents', () => { state.view = 'agents'; state.menuOpen = false; rerender(); }, state.view === 'agents'));
+    drawer.appendChild(mkItem('\uD83E\uDD16', 'Gerer les agents', () => { state.view = 'agents'; state.menuOpen = false; rerender(); }, state.view === 'agents'));
     drawer.appendChild(mkItem('\uD83C\uDFED', 'Fabrique', () => { state.view = 'fabrique'; state.menuOpen = false; rerender(); }, state.view === 'fabrique'));
     drawer.appendChild(mkItem('\u2699\uFE0F', 'Reglages', () => { state.view = 'settings'; state.menuOpen = false; rerender(); }, state.view === 'settings'));
   }
 
-  // --- Contenu principal ---
   const mainEl = document.createElement('div');
   mainEl.className = 'lvgl-main';
   mainEl.style.position = 'relative';
@@ -185,7 +175,6 @@ export function renderFrame(root, state) {
   frame.append(statusBar, mainEl);
   root.appendChild(frame);
 
-  // Injection animation
   if (!document.getElementById('nestor-anim')) {
     const style = document.createElement('style');
     style.id = 'nestor-anim';

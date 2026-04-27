@@ -4,36 +4,7 @@ let activeBackends = {};
 
 // Backends par defaut si backends.json absent
 const DEFAULT_BACKENDS = {
-  'puter-qwen': {
-    label: 'Puter Qwen (gratuit)',
-    type: 'puter-qwen',
-    model: 'qwen/qwen-plus',
-    requiresApiKey: false
-  },
-  'puter-gpt4o': {
-    label: 'Puter GPT-4o (gratuit)',
-    type: 'puter-gpt4o',
-    model: 'gpt-4o',
-    requiresApiKey: false
-  },
-  'perplexity-sonar': {
-    label: 'Perplexity Sonar',
-    type: 'openai-compatible',
-    baseUrl: 'https://api.perplexity.ai',
-    chatPath: '/chat/completions',
-    model: 'sonar',
-    requiresApiKey: true,
-    envKey: 'PERPLEXITY_API_KEY'
-  },
-  'openai-gpt4o': {
-    label: 'OpenAI GPT-4o',
-    type: 'openai-compatible',
-    baseUrl: 'https://api.openai.com/v1',
-    chatPath: '/chat/completions',
-    model: 'gpt-4o',
-    requiresApiKey: true,
-    envKey: 'OPENAI_API_KEY'
-  },
+  // GROQ par defaut partout (texte)
   'groq-llama': {
     label: 'Groq LLaMA 3 (gratuit)',
     type: 'openai-compatible',
@@ -42,6 +13,33 @@ const DEFAULT_BACKENDS = {
     model: 'llama3-70b-8192',
     requiresApiKey: true,
     envKey: 'GROQ_API_KEY'
+  },
+  // Variante plus legere si tu veux
+  'groq-llama-small': {
+    label: 'Groq LLaMA 3 8B (gratuit)',
+    type: 'openai-compatible',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    chatPath: '/chat/completions',
+    model: 'llama3-8b-8192',
+    requiresApiKey: true,
+    envKey: 'GROQ_API_KEY'
+  },
+  // Puter en secours (aucune cle, mais session necessaire)
+  'puter-qwen': {
+    label: 'Puter Qwen (secours)',
+    type: 'puter-qwen',
+    model: 'qwen/qwen-plus',
+    requiresApiKey: false
+  },
+  // Perplexity pour la recherche web si tu actives la cle
+  'perplexity-sonar': {
+    label: 'Perplexity Sonar (web)',
+    type: 'openai-compatible',
+    baseUrl: 'https://api.perplexity.ai',
+    chatPath: '/chat/completions',
+    model: 'sonar',
+    requiresApiKey: true,
+    envKey: 'PERPLEXITY_API_KEY'
   }
 };
 
@@ -78,7 +76,7 @@ function waitForPuter(timeout = 8000) {
 }
 
 export async function callLLM(backendId, { messages, agentConfig }) {
-  const cfg = activeBackends[backendId] || activeBackends['puter-qwen'];
+  const cfg = activeBackends[backendId] || activeBackends['groq-llama'];
   if (!cfg) throw new Error('Aucun backend disponible.');
 
   // --- Backends Puter.js (gratuits, sans cle) ---
@@ -91,7 +89,7 @@ export async function callLLM(backendId, { messages, agentConfig }) {
     return { message: { role: 'assistant', content } };
   }
 
-  // --- Backends OpenAI-compatible (Perplexity, OpenAI, Groq) ---
+  // --- Backends OpenAI-compatible (Groq, Perplexity, etc.) ---
   if (cfg.type === 'openai-compatible') {
     const apiKey = cfg.envKey ? (lsGet(cfg.envKey) || '') : '';
     if (cfg.requiresApiKey && !apiKey) {
