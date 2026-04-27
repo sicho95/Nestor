@@ -1,49 +1,177 @@
-import { lsGet } from '../storage/agents-db.js';
+import { lsGet, lsSet } from '../storage/agents-db.js';
 
-// Recherche web via Google Programmable Search (Custom Search JSON API)
-// en passant par le proxy CORS perso de l'utilisateur.
+// ─────────────────────────────────────────────────────────────────────────────
+// search.js — Moteur de recherche web pour Nestor
+// Stratégie : Serper.dev (primaire) → SearXNG instances publiques (fallback)
 //
-// Le proxy attend un parametre ?url=... et se charge de faire le fetch
-// cote Cloudflare, en ajoutant les bons headers CORS.
+// Serper.dev :
+//   - 2 500 req/mois GRATUITES, sans CB
+//   - Vrais résultats Google structurés en JSON
+//   - Clé SERPER_KEY à renseigner dans Réglages
+//   - Si quota épuisé (HTTP 429) → bascule auto sur SearXNG
 //
-// On construit ici l'URL Google avec la cle et le CX stockes en local,
-// puis on l'encode et on l'envoie au proxy.
+// SearXNG (fallback) :
+//   - Instances publiques, agrège Google + Bing + DuckDuckGo + Wikipedia
+//   - Zéro clé, zéro inscription, illimité
+//   - Plusieurs instances en cascade pour la résilience
+//
+// Proxy CORS perso (proxy.sicho95.workers.dev) :
+//   - Toutes les requêtes passent par le proxy pour contourner le CORS
+// ─────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_PROXY_URL = 'https://proxy.sicho95.workers.dev/';
+const DEFAULT_PROXY = 'https://proxy.sicho95.workers.dev/';
 
-function getSearchConfig() {
-  const proxyUrl = lsGet('SEARCH_PROXY_URL') || DEFAULT_PROXY_URL;
-  const apiKey   = lsGet('GOOGLE_CSE_KEY') || '';
-  const cx       = lsGet('GOOGLE_CSE_CX') || '';
-  if (!apiKey || !cx) {
-    throw new Error('Config recherche manquante : renseigne GOOGLE_CSE_KEY et GOOGLE_CSE_CX dans Reglages.');
-  }
-  return { proxyUrl, apiKey, cx };
+// Instances SearXNG publiques en ordre de préférence
+// (vérifiées actives avril 2026 — format JSON disponible)
+const SEARXNG_INSTANCES = [
+  'https://search.inetol.net',
+  'https://searx.be',
+  'https://searxng.site',
+  'https://search.sapti.me',
+];
+
+// Clé localStorage pour mémoriser l'état du quota Serper
+const LS_SERPER_EXHAUSTED = 'SERPER_QUOTA_EXHAUSTED_MONTH';
+
+// ─── Helpers localStorage ────────────────────────────────────────────────────
+
+function getProxyUrl() {
+  return (lsGet('SEARCH_PROXY_URL') || DEFAULT_PROXY).replace(/\/$/, '');
 }
 
-export async function searchWeb(query, { maxResults = 5 } = {}) {
-  const { proxyUrl, apiKey, cx } = getSearchConfig();
+// Retourne true si le quota Serper a été épuisé CE mois-ci
+function isSerperExhausted() {
+  const stored = lsGet(LS_SERPER_EXHAUSTED);
+  if (!stored) return false;
+  const { month, year } = JSON.parse(stored);
+  const now = new Date();
+  return now.getFullYear() === year && now.getMonth() === month;
+}
 
-  const googleUrl = new URL('https://www.googleapis.com/customsearch/v1');
-  googleUrl.searchParams.set('key', apiKey);
-  googleUrl.searchParams.set('cx', cx);
-  googleUrl.searchParams.set('q', query);
-  googleUrl.searchParams.set('num', String(maxResults));
+// Marque Serper comme épuisé pour le mois courant
+function markSerperExhausted() {
+  const now = new Date();
+  lsSet(LS_SERPER_EXHAUSTED, JSON.stringify({
+    month: now.getMonth(),
+    year:  now.getFullYear(),
+  }));
+}
 
-  const target = googleUrl.toString();
-  const finalUrl = proxyUrl.replace(/\/$/, '') + '?url=' + encodeURIComponent(target);
+// ─── Serper.dev ──────────────────────────────────────────────────────────────
 
-  const res = await fetch(finalUrl);
+async function searchViaSerper(query, maxResults) {
+  const apiKey = lsGet('SERPER_KEY') || '';
+  if (!apiKey) throw new Error('SERPER_KEY manquante — configure-la dans Réglages.');
+
+  const proxy    = getProxyUrl();
+  const endpoint = 'https://google.serper.dev/search';
+
+  // Serper utilise POST avec JSON
+  const proxyUrl = proxy + '?url=' + encodeURIComponent(endpoint);
+
+  const res = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'X-API-KEY':     apiKey,
+    },
+    body: JSON.stringify({ q: query, num: maxResults, gl: 'fr', hl: 'fr' }),
+  });
+
+  if (res.status === 429) {
+    markSerperExhausted();
+    throw new Error('SERPER_QUOTA_EXCEEDED');
+  }
+
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
-    throw new Error('Erreur proxy recherche ' + res.status + (txt ? ' : ' + txt.slice(0, 120) : ''));
+    throw new Error('Serper erreur ' + res.status + (txt ? ' : ' + txt.slice(0, 120) : ''));
   }
-  const data = await res.json();
-  const items = data.items || [];
 
-  return items.map((it) => ({
-    title: it.title || it.htmlTitle || '',
-    link: it.link || it.formattedUrl || '',
-    snippet: it.snippet || it.htmlSnippet || '',
+  const data = await res.json();
+  const items = data.organic || [];
+
+  return items.slice(0, maxResults).map((it) => ({
+    title:   it.title   || '',
+    link:    it.link    || '',
+    snippet: it.snippet || '',
   }));
+}
+
+// ─── SearXNG (fallback) ──────────────────────────────────────────────────────
+
+async function searchViaSearXNG(query, maxResults) {
+  const proxy = getProxyUrl();
+  const errors = [];
+
+  for (const base of SEARXNG_INSTANCES) {
+    try {
+      const searxUrl = new URL(base + '/search');
+      searxUrl.searchParams.set('q',          query);
+      searxUrl.searchParams.set('format',     'json');
+      searxUrl.searchParams.set('language',   'fr-FR');
+      searxUrl.searchParams.set('categories', 'general');
+
+      const proxyUrl = proxy + '?url=' + encodeURIComponent(searxUrl.toString());
+      const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) });
+
+      if (!res.ok) { errors.push(`${base} → HTTP ${res.status}`); continue; }
+
+      const data  = await res.json();
+      const items = (data.results || []).slice(0, maxResults);
+
+      if (items.length === 0) { errors.push(`${base} → 0 résultats`); continue; }
+
+      return items.map((it) => ({
+        title:   it.title   || '',
+        link:    it.url     || '',
+        snippet: it.content || '',
+      }));
+    } catch (e) {
+      errors.push(`${base} → ${e.message}`);
+    }
+  }
+
+  throw new Error('SearXNG : toutes les instances ont échoué.\n' + errors.join('\n'));
+}
+
+// ─── Point d'entrée principal ────────────────────────────────────────────────
+//
+// Ordre de priorité :
+//   1. Serper.dev    — si SERPER_KEY présente ET quota non épuisé ce mois
+//   2. SearXNG       — fallback automatique si Serper 429 ou quota épuisé
+//
+// Retourne : Array<{ title, link, snippet }>
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function searchWeb(query, { maxResults = 5 } = {}) {
+  const hasSerperKey = !!(lsGet('SERPER_KEY') || '').trim();
+  const serperDead   = isSerperExhausted();
+
+  // ── Tentative Serper (primaire) ──
+  if (hasSerperKey && !serperDead) {
+    try {
+      const results = await searchViaSerper(query, maxResults);
+      return results;
+    } catch (e) {
+      if (e.message !== 'SERPER_QUOTA_EXCEEDED') {
+        // Erreur technique Serper (pas quota) → log mais on tente quand même SearXNG
+        console.warn('[Nestor/search] Serper erreur technique :', e.message);
+      }
+      // Dans tous les cas, fallback sur SearXNG
+    }
+  }
+
+  // ── Fallback SearXNG ──
+  return searchViaSearXNG(query, maxResults);
+}
+
+// ─── Export du statut (pour affichage dans Réglages) ─────────────────────────
+
+export function getSearchStatus() {
+  const hasSerperKey = !!(lsGet('SERPER_KEY') || '').trim();
+  const exhausted    = isSerperExhausted();
+  if (!hasSerperKey) return { engine: 'searxng', reason: 'Pas de clé Serper configurée' };
+  if (exhausted)     return { engine: 'searxng', reason: 'Quota Serper épuisé ce mois' };
+  return { engine: 'serper', reason: 'Actif' };
 }
