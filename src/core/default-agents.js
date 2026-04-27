@@ -1,6 +1,6 @@
 function isoNow() { return new Date().toISOString(); }
 
-function makeAgent({ id, name, role, description, backendId = 'puter-qwen', system_prompt, tags = [], memory_profile = { level: 'normal' } }) {
+function makeAgent({ id, name, role, description, backendId = 'groq-llama', system_prompt, tags = [], memory_profile = { level: 'normal' } }) {
   const now = isoNow();
   return { id, name, role, description, tags, backendId, system_prompt, memory_profile,
     preferences: [], examples: [], metrics: { corrections: 0, confidence: 1, lastUsed: null },
@@ -14,7 +14,7 @@ export function defaultAgents() {
       name: 'Orchestrateur',
       role: 'orchestrator',
       description: 'Analyse la demande, choisit le bon agent, delègue et fusionne la réponse.',
-      backendId: 'perplexity-sonar',
+      backendId: 'groq-llama',
       tags: ['systeme', 'routing', 'meta'],
       memory_profile: { level: 'high', scope: 'global-routing' },
       system_prompt: `Tu es l'orchestrateur principal de Nestor.
@@ -25,14 +25,14 @@ Règles :
 - Si aucun agent ne correspond, propose d'en créer un nouveau via la Fabrique d'agents.
 - Si la demande est ambigüe, demande une clarification courte.
 - Format de réponse : toujours concis, structuré, utile.
-- Quand tu proposes la création d'un agent, fournis un JSON minimal : {"name": "...", "role": "...", "description": "...", "system_prompt": "...", "tags": [...], "backendId": "puter-qwen"}.`,
+- Quand tu proposes la création d'un agent, fournis un JSON minimal : {"name": "...", "role": "...", "description": "...", "system_prompt": "...", "tags": [...], "backendId": "groq-llama"}.`,
     }),
     makeAgent({
       id: 'agent-jardinier',
       name: 'Jardinier',
       role: 'gardener',
       description: 'Nettoie, compacte et améliore les agents. Ne répond pas à l\u2019utilisateur final.',
-      backendId: 'perplexity-sonar',
+      backendId: 'groq-llama',
       tags: ['systeme', 'maintenance', 'prompts'],
       memory_profile: { level: 'high', scope: 'agents-only' },
       system_prompt: `Tu es le jardinier de Nestor.
@@ -52,7 +52,7 @@ Format de sortie : JSON de l'agent modifié uniquement. Pas de commentaire.`,
       name: 'Fabrique d\'agents',
       role: 'factory',
       description: 'Crée un nouvel agent spécialisé à la demande depuis un brief court.',
-      backendId: 'perplexity-sonar',
+      backendId: 'groq-llama',
       tags: ['systeme', 'creation', 'templates'],
       memory_profile: { level: 'normal', scope: 'agent-creation' },
       system_prompt: `Tu es la fabrique d'agents de Nestor.
@@ -63,7 +63,7 @@ Règles de création :
 - Périmètre explicite : ce qu'il fait ET ce qu'il ne fait pas.
 - Format de sortie clair : tableau, liste, synthèse, narration…
 - Éviter les agents trop larges ou trop génériques.
-- Préférer backendId "puter-qwen" par défaut, "perplexity-sonar" si recherche web nécessaire.
+- Préférer backendId "groq-llama" par défaut.
 
 Format de sortie OBLIGATOIRE (JSON brut, pas de markdown) :
 {
@@ -71,7 +71,7 @@ Format de sortie OBLIGATOIRE (JSON brut, pas de markdown) :
   "role": "slug-role",
   "description": "Une phrase.",
   "tags": ["tag1", "tag2"],
-  "backendId": "puter-qwen",
+  "backendId": "groq-llama",
   "system_prompt": "Prompt complet de l'agent...",
   "memory_profile": { "level": "normal", "scope": "domaine" }
 }`,
@@ -134,23 +134,44 @@ Format préféré : texte narratif clair, avec les choix indiqués par [CHOIX A]
 Adapte le registre (aventure, mystère, SF, conte…) selon la demande.`,
     }),
     makeAgent({
-      id: 'agent-recherche',
+      id: 'agent-recherche-ciblee',
       name: 'Recherche ciblée',
       role: 'research',
-      description: 'Fait une recherche précise et renvoie une synthèse exploitable.',
-      backendId: 'perplexity-sonar',
+      description: 'Fait une recherche précise dans tes propres donnees et renvoie une synthese exploitable (sans appel web).',
       tags: ['recherche', 'synthese', 'veille'],
       memory_profile: { level: 'normal', scope: 'task-specific' },
-      system_prompt: `Tu es un agent de recherche ciblée.
+      system_prompt: `Tu es un agent de recherche ciblée SANS acces direct au Web.
 
 Tu aides à :
 - Reformuler et cadrer la question de recherche
 - Identifier les points clés à vérifier
-- Synthétiser les résultats de manière actionnable
-- Distinguer ce qui est certain, probable ou à vérifier
+- Synthétiser les informations deja fournies par l'utilisateur de maniere actionnable
+- Distinguer ce qui est certain, probable ou a verifier
 
-Format préféré : synthèse en 3-5 points, suivie d'un bloc "Sources / A vérifier".
+Si l'utilisateur a besoin d'une recherche Web, indique-lui d'utiliser l'agent "Recherche web".
+
+Format préféré : synthese en 3-5 points, suivie d'un bloc "A verifier".
 Evite le hors-sujet. Sois concis et factuel.`,
+    }),
+    makeAgent({
+      id: 'agent-recherche-web',
+      name: 'Recherche web',
+      role: 'web-search',
+      description: 'Interroge le Web via le proxy CORS perso et resume les resultats avec Groq.',
+      backendId: 'groq-llama',
+      tags: ['recherche', 'web', 'synthese'],
+      memory_profile: { level: 'normal', scope: 'web-search' },
+      system_prompt: `Tu es un agent de recherche web.
+
+Le systeme te fournit la question de l'utilisateur ET une liste de resultats de recherche deja recuperes (title, url, snippet).
+Ton travail :
+- comprendre la question,
+- lire les resultats fournis,
+- repondre en te basant uniquement sur eux (pas d'invention hors de ce contexte),
+- proposer une reponse en 3-5 points + un bloc "Liens utiles".
+
+Ne fais pas toi-meme de requete HTTP. Tu n'as pas acces direct a Internet.
+Si les resultats semblent pauvres ou hors-sujet, indique-le clairement.`,
     }),
   ];
 }
