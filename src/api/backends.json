@@ -1,4 +1,22 @@
 {
+  "groq-llama": {
+    "label": "Groq — Llama 3.3 70B (rapide)",
+    "type": "openai-compatible",
+    "baseUrl": "https://api.groq.com/openai/v1",
+    "chatPath": "/chat/completions",
+    "model": "llama-3.3-70b-versatile",
+    "requiresApiKey": true,
+    "envKey": "GROQ_API_KEY"
+  },
+  "groq-llama-free": {
+    "label": "Groq — Llama 3.1 8B (gratuit)",
+    "type": "openai-compatible",
+    "baseUrl": "https://api.groq.com/openai/v1",
+    "chatPath": "/chat/completions",
+    "model": "llama-3.1-8b-instant",
+    "requiresApiKey": true,
+    "envKey": "GROQ_API_KEY"
+  },
   "perplexity-sonar": {
     "label": "Perplexity Sonar",
     "type": "openai-compatible",
@@ -18,9 +36,9 @@
     "envKey": "OPENROUTER_API_KEY"
   },
   "puter-qwen": {
-    "label": "Qwen (Puter.js)",
+    "label": "Qwen (Puter.js — gratuit sans cle)",
     "type": "puter-qwen",
     "requiresApiKey": false,
-    "note": "Utilise Puter.js côté client pour accéder aux modèles Qwen gratuitement."
+    "note": "Utilise Puter.js cote client pour acceder aux modeles Qwen gratuitement."
   }
 }
