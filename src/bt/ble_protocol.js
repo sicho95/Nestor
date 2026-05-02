@@ -1,0 +1,79 @@
+/**
+ * ble_protocol.js — Protocole JSON haut niveau BLE Nestor
+ */
+import { bleWrite, bleRead, bleSubscribe } from './ble.js';
+
+export async function bleRequestWifiScan() {
+  await bleWrite('WIFI_SCAN', JSON.stringify({ cmd: 'scan' }));
+  return new Promise(resolve => {
+    const t = setTimeout(() => resolve([]), 10000);
+    bleSubscribe('WIFI_SCAN', raw => {
+      try {
+        const d = JSON.parse(raw);
+        if (Array.isArray(d.networks)) { clearTimeout(t); resolve(d.networks); }
+      } catch {}
+    }).catch(() => resolve([]));
+  });
+}
+
+export async function bleProvisionWifi(ssid, password) {
+  await bleWrite('WIFI_PROVISION', { ssid, password });
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('Timeout provision WiFi')), 15000);
+    bleSubscribe('DEVICE_STATUS', raw => {
+      try {
+        const s = JSON.parse(raw);
+        if (s.wifi === 'connected') { clearTimeout(t); resolve(s); }
+        if (s.wifi === 'failed')    { clearTimeout(t); reject(new Error('WiFi échoué: ' + (s.reason||'?'))); }
+      } catch {}
+    }).catch(() => {});
+  });
+}
+
+export async function bleReadAgents() {
+  await bleWrite('AGENT_SYNC', JSON.stringify({ cmd: 'get_agents' }));
+  const raw = await bleRead('AGENT_SYNC');
+  return JSON.parse(raw).agents || [];
+}
+
+export async function blePushAgents(agents) {
+  await bleWrite('AGENT_SYNC', { cmd: 'push', agents });
+}
+
+export async function bleSyncAgents(localAgents) {
+  const remote = await bleReadAgents();
+  const map = {};
+  for (const a of localAgents) map[a.id] = { ...a };
+  for (const a of remote) {
+    if (!map[a.id]) { map[a.id] = { ...a }; }
+    else {
+      const lt = new Date(map[a.id].updatedAt || 0).getTime();
+      const rt = new Date(a.updatedAt || 0).getTime();
+      if (rt > lt) map[a.id] = { ...a };
+    }
+  }
+  const merged = Object.values(map);
+  await blePushAgents(merged);
+  return merged;
+}
+
+export async function bleSendText(text) {
+  await bleWrite('TEXT_INPUT', { text });
+}
+
+export function setupLlmRelay(llmCallFn) {
+  bleSubscribe('LLM_RELAY', async raw => {
+    try {
+      const req = JSON.parse(raw);
+      if (req.cmd !== 'request') return;
+      const content = await llmCallFn(req.messages, req.model, req.agentId);
+      await bleWrite('LLM_RELAY', { cmd: 'response', reqId: req.reqId, content });
+    } catch (e) {
+      await bleWrite('LLM_RELAY', { cmd: 'error', message: e.message }).catch(() => {});
+    }
+  }).catch(() => {});
+}
+
+export async function bleGetDeviceStatus() {
+  return JSON.parse(await bleRead('DEVICE_STATUS'));
+}
